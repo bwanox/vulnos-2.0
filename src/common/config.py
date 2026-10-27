@@ -13,9 +13,9 @@ class NebisConfig:
     """Nebius Token Factory configuration."""
 
     api_key: str = ""
-    api_base: str = "https://api.studio.nebius.com/v1"
-    nano_model: str = "nvidia/Nemotron-Mini-4B-Instruct"
-    ultra_model: str = "nvidia/Nemotron-4-340B-Instruct"
+    api_base: str = "https://api.tokenfactory.nebius.com/v1/"
+    nano_model: str = "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    ultra_model: str = "nvidia/Nemotron-3-Ultra-550b-a55b"
 
 
 @dataclass
@@ -63,9 +63,15 @@ def load_config(env_file: str = ".env") -> VulnOSConfig:
     return VulnOSConfig(
         nebius=NebisConfig(
             api_key=os.getenv("NEBIUS_API_KEY", ""),
-            api_base=os.getenv("NEBIUS_API_BASE", "https://api.studio.nebius.com/v1"),
-            nano_model=os.getenv("NEMOTRON_NANO_MODEL", "nvidia/Nemotron-Mini-4B-Instruct"),
-            ultra_model=os.getenv("NEMOTRON_ULTRA_MODEL", "nvidia/Nemotron-4-340B-Instruct"),
+            api_base=os.getenv(
+                "NEBIUS_API_BASE", "https://api.tokenfactory.nebius.com/v1/"
+            ),
+            nano_model=os.getenv(
+                "NEMOTRON_NANO_MODEL", "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+            ),
+            ultra_model=os.getenv(
+                "NEMOTRON_ULTRA_MODEL", "nvidia/Nemotron-3-Ultra-550b-a55b"
+            ),
         ),
         tavily=TavilyConfig(
             api_key=os.getenv("TAVILY_API_KEY", ""),
