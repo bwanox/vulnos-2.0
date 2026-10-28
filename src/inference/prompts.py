@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from src.common.models import (
+    EXPLOIT_FAILURE_MARKER,
     CodeSlice,
     ExploitTest,
     TavilyIntelligence,
@@ -14,9 +15,11 @@ def build_triage_messages(slice_obj: CodeSlice) -> list[dict[str, str]]:
     """Build messages for Nemotron-Nano triage."""
     system_prompt = (
         "You are an expert static security analyst. "
-        "Analyze the provided code slice and determine if it contains a genuine security vulnerability "
+        "Analyze the provided code slice and determine if it contains a genuine security "
+        "vulnerability "
         "(e.g., SQL injection, command injection, path traversal, deserialization flaw). "
-        "Filter out false positives where sanitization or upstream validation already neutralizes the sink. "
+        "Filter out false positives where sanitization or upstream validation already neutralizes "
+        "the sink. "
         "You must respond with valid JSON matching this schema:\n"
         "{\n"
         '  "is_vulnerable": boolean,\n'
@@ -51,8 +54,11 @@ def build_red_team_messages(
     system_prompt = (
         "You are an adversarial Red-Team penetration testing agent. "
         "Given a vulnerable code slice and live threat intelligence (CVE/advisory context), "
-        "write a standalone pytest test function that actively exploits the vulnerability and fails/triggers "
-        "on the unpatched code. "
+        "write exactly one standalone pytest test function that fails on the unpatched code "
+        "only because its vulnerability-specific assertion fails. The assertion message for that "
+        f"expected failure must begin with '{EXPLOIT_FAILURE_MARKER}'. "
+        "The same test must pass after the vulnerability is fixed. "
+        "Do not use crashes, import errors, or setup failures as evidence of exploitability. "
         "You must respond with valid JSON matching this schema:\n"
         "{\n"
         '  "test_code": string (valid python pytest function),\n'
@@ -86,8 +92,10 @@ def build_blue_team_messages(
     system_prompt = (
         "You are a Blue-Team defensive security engineer. "
         "Given a vulnerable code slice, live threat intelligence, and a Red-Team PoC exploit test, "
-        "synthesize a minimal surgical git unified diff or patch that neutralizes the vulnerability "
-        "while ensuring all normal execution and existing tests continue to pass. "
+        "synthesize a minimal surgical git unified diff or patch that neutralizes the "
+        "vulnerability while ensuring all normal execution and existing tests continue to pass. "
+        "Set the `diff` field to a valid unified diff accepted by `git apply`; do not use "
+        "search/replace blocks. "
         "You must respond with valid JSON matching this schema:\n"
         "{\n"
         '  "diff": string (unified diff format),\n'
@@ -109,7 +117,8 @@ def build_blue_team_messages(
             f"\n[SELF-HEALING RETRY NOTICE]\n"
             f"Your previous patch attempt failed verification with the following error/traceback:\n"
             f"```\n{failed_patch_error}\n```\n"
-            "Analyze why the previous patch failed or caused a regression and produce a corrected patch."
+            "Analyze why the previous patch failed or caused a regression and produce a corrected "
+            "patch."
         )
 
     return [

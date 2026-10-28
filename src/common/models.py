@@ -7,6 +7,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+EXPLOIT_FAILURE_MARKER = "VULNOS_EXPECTED_EXPLOIT_FAILURE:"
+
 
 class AgentState(str, Enum):
     """Pipeline state machine states."""
@@ -78,6 +80,30 @@ class PatchDiff(BaseModel):
     files_modified: list[str] = Field(default_factory=list)
 
 
+class SandboxStatus(str, Enum):
+    """Top-level outcomes returned by the sandbox verifier."""
+
+    VERIFIED = "VERIFIED"
+    PATCH_FAILED = "PATCH_FAILED"
+    REGRESSION_FAILED = "REGRESSION_FAILED"
+    INCONCLUSIVE = "INCONCLUSIVE"
+    ENVIRONMENT_ERROR = "ENVIRONMENT_ERROR"
+
+
+class SandboxStageResult(BaseModel):
+    """Captured outcome and diagnostics for one verification stage."""
+
+    stage: str
+    status: str
+    command: list[str] = Field(default_factory=list)
+    exit_code: int | None = None
+    stdout: str = ""
+    stderr: str = ""
+    duration_seconds: float = 0.0
+    timed_out: bool = False
+    reason: str = ""
+
+
 class SandboxVerdict(BaseModel):
     """Result from the ephemeral sandbox verification."""
 
@@ -85,10 +111,15 @@ class SandboxVerdict(BaseModel):
     exploit_blocked_after_patch: bool = False
     existing_tests_pass: bool = False
     verified: bool = False
+    status: SandboxStatus = SandboxStatus.INCONCLUSIVE
+    failed_stage: str | None = None
+    reason: str = ""
+    stages: list[SandboxStageResult] = Field(default_factory=list)
     stdout: str = ""
     stderr: str = ""
     exit_code: int = -1
     retry_count: int = 0
+    duration_seconds: float = 0.0
 
 
 class TelemetryEvent(BaseModel):
