@@ -41,12 +41,12 @@ def _copy_regular_tree(source: Path, destination: Path) -> None:
         target_directory.mkdir(parents=True, exist_ok=True)
         retained_directories = []
         for name in directory_names:
-            if name in _IGNORED_DIRECTORIES:
-                continue
             if (current_path / name).is_symlink():
                 raise ValueError(
                     f"Source tree contains an unsupported symlink: {current_path / name}"
                 )
+            if name in _IGNORED_DIRECTORIES:
+                continue
             retained_directories.append(name)
         directory_names[:] = sorted(retained_directories)
 

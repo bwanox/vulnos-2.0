@@ -62,6 +62,20 @@ class ControlledVerifier:
                 languages,
             )
 
+        if profile.runtime_image not in self.config.approved_images:
+            return self._verdict(
+                SandboxStatus.ENVIRONMENT_ERROR,
+                "profile_validation",
+                (
+                    f"Required runtime image {profile.runtime_image!r} is not approved by "
+                    "SandboxConfig."
+                ),
+                started,
+                stages,
+                request,
+                languages,
+            )
+
         timeout = min(
             request.timeout_seconds or profile.timeout_seconds,
             profile.timeout_seconds,

@@ -6,6 +6,7 @@ import re
 import shutil
 from collections.abc import Iterable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
@@ -110,24 +111,27 @@ class ManifestLanguageAdapter:
     source_to_profile: tuple[tuple[str, str], ...] = ()
 
     def profile_ids(self, report: ProjectDiscoveryReport) -> Iterable[str]:
-        detected = {language.name for language in report.languages}
-        if not detected.intersection(self.languages):
+        language_evidence = {language.name: language.evidence for language in report.languages}
+        adapter_languages = set(self.languages)
+        if not adapter_languages.intersection(language_evidence):
             return ()
-        files = set(report.build_files)
-        selected = [
-            profile_id
-            for manifest, profile_id in self.manifest_to_profile
-            if any(path.rsplit("/", 1)[-1] == manifest for path in files)
-        ]
-        selected.extend(
-            profile_id
-            for language, profile_id in self.source_to_profile
-            if any(
-                language == detected.name
-                and any(item.startswith("source:") for item in detected.evidence)
-                for detected in report.languages
-            )
-        )
+        root_manifests = {
+            path for path in report.build_files if "/" not in path and "\\" not in path
+        }
+        selected: list[str] = []
+        for manifest, profile_id in self.manifest_to_profile:
+            if manifest not in root_manifests:
+                continue
+            if profile_id not in selected:
+                selected.append(profile_id)
+
+        for language, profile_id in self.source_to_profile:
+            evidence = language_evidence.get(language, ())
+            if language in adapter_languages and any(
+                item.startswith("source:") for item in evidence
+            ):
+                if profile_id not in selected:
+                    selected.append(profile_id)
         return tuple(selected)
 
 
@@ -189,6 +193,26 @@ class ExecutionProfileRegistry:
             raise ValueError(
                 f"Profile {profile_id!r} does not match the discovered project manifests"
             )
+        root_manifests = {
+            path for path in report.build_files if "/" not in path and "\\" not in path
+        }
+        if profile.required_build_files and not any(
+            required in root_manifests for required in profile.required_build_files
+        ):
+            raise ValueError(
+                f"Profile {profile_id!r} requires one of these root build files: "
+                f"{', '.join(profile.required_build_files)}"
+            )
+        nested_profile_manifests = [
+            path
+            for path in report.build_files
+            if ("/" in path or "\\" in path) and Path(path).name in profile.required_build_files
+        ]
+        if nested_profile_manifests:
+            raise ValueError(
+                f"Profile {profile_id!r} has nested build manifests that are not run from "
+                f"the workspace root: {', '.join(nested_profile_manifests)}"
+            )
         detected = {language.name for language in report.languages}
         if not detected.intersection(profile.languages):
             raise ValueError(
@@ -218,7 +242,7 @@ def default_profile_registry() -> ExecutionProfileRegistry:
             toolchain="Python 3.12",
             test_language="Python",
             runtime_image="vulnos/python:3.12",
-            required_build_files=("pyproject.toml", "requirements.txt"),
+            required_build_files=(),
             build_commands=(("python", "-m", "compileall", "-q", "."),),
             test_commands=(("python", "-m", "pytest", "-q"),),
             test_framework="pytest",

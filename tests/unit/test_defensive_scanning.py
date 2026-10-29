@@ -12,6 +12,8 @@ from src.common.models import PatchDiff, SandboxStatus
 from src.sandbox.adapters import (
     DEFAULT_PROFILE_REGISTRY,
     ExecutionProfile,
+    ExecutionProfileRegistry,
+    ManifestLanguageAdapter,
 )
 from src.sandbox.configuration_checks import check_project_configuration
 from src.sandbox.discovery import discover_project
@@ -138,6 +140,37 @@ def test_python_profile_and_mixed_language_discovery(tmp_path: Path) -> None:
     assert verdict.detected_languages == ["C", "Python"]
 
 
+def test_python_source_only_profile_selection_reads_language_evidence(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "module.py").write_text("value = 1\n", encoding="utf-8")
+    report = discover_project(tmp_path)
+
+    assert DEFAULT_PROFILE_REGISTRY.available_for(report) == ["python-pytest"]
+    profile = DEFAULT_PROFILE_REGISTRY.validate_for("python-pytest", report)
+    assert profile.required_build_files == ()
+
+
+def test_manifest_and_source_profiles_are_deduplicated_and_registry_filtered(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "pyproject.toml").write_text("[project]\nname='fixture'\n", encoding="utf-8")
+    (tmp_path / "module.py").write_text("value = 1\n", encoding="utf-8")
+    report = discover_project(tmp_path)
+    adapter = ManifestLanguageAdapter(
+        name="python-duplicate",
+        languages=("Python",),
+        manifest_to_profile=(("pyproject.toml", "python-pytest"),),
+        source_to_profile=(("Python", "python-pytest"),),
+    )
+    registry = ExecutionProfileRegistry(
+        DEFAULT_PROFILE_REGISTRY.profiles,
+        [adapter],
+    )
+
+    assert registry.available_for(report) == ["python-pytest"]
+
+
 @pytest.mark.parametrize(
     ("manifest", "profile_id"),
     [
@@ -163,6 +196,47 @@ def test_java_and_javascript_adapters_are_registered(
     assert profile.runtime_image in SandboxConfig().approved_images
     assert profile.build_profile_id == f"{profile_id}-build"
     assert profile.test_profile_id == f"{profile_id}-test"
+
+
+@pytest.mark.parametrize(
+    ("manifest", "source", "language"),
+    [
+        ("go.mod", "main.go", "Go"),
+        ("Cargo.toml", "main.rs", "Rust"),
+        ("solution.sln", "Program.cs", "C#"),
+        ("composer.json", "index.php", "PHP"),
+    ],
+)
+def test_discovered_languages_without_approved_images_have_no_execution_profile(
+    tmp_path: Path,
+    manifest: str,
+    source: str,
+    language: str,
+) -> None:
+    (tmp_path / manifest).write_text("{}", encoding="utf-8")
+    (tmp_path / source).write_text("source\n", encoding="utf-8")
+    report = discover_project(tmp_path)
+
+    assert language in {item.name for item in report.languages}
+    assert DEFAULT_PROFILE_REGISTRY.available_for(report) == []
+
+
+def test_nested_manifests_do_not_select_root_working_directory_profile(tmp_path: Path) -> None:
+    nested = tmp_path / "service"
+    nested.mkdir()
+    (nested / "pom.xml").write_text("<project/>", encoding="utf-8")
+    (nested / "App.java").write_text("class App {}\n", encoding="utf-8")
+    report = discover_project(tmp_path)
+
+    assert "java-maven" not in DEFAULT_PROFILE_REGISTRY.available_for(report)
+
+
+def test_required_root_build_files_are_enforced(tmp_path: Path) -> None:
+    (tmp_path / "pom.xml").write_text("<project/>", encoding="utf-8")
+    report = discover_project(tmp_path)
+
+    with pytest.raises(ValueError, match="does not match"):
+        DEFAULT_PROFILE_REGISTRY.validate_for("java-gradle", report)
 
 
 def test_build_failure_is_not_reported_as_patched_success(tmp_path: Path) -> None:
@@ -265,6 +339,25 @@ def test_docker_runner_rejects_unregistered_images_and_socket_paths(tmp_path: Pa
         runner.run("attacker/image:latest", ["true"], tmp_path)
     with pytest.raises(ValueError, match="Docker socket"):
         runner.run("trusted-runtime:local", ["cat", "/var/run/docker.sock"], tmp_path)
+
+
+def test_missing_profile_image_is_reported_without_running_container(tmp_path: Path) -> None:
+    (tmp_path / "app.py").write_text("pass\n", encoding="utf-8")
+    runner = FixtureRunner()
+    target_registry = ApprovedProjectRegistry()
+    target_id = target_registry.approve_project(tmp_path)
+    restricted_config = SandboxConfig(approved_images=("trusted-runtime:local",))
+    verdict = SandboxVerifier(
+        docker_runner=runner,
+        config=restricted_config,
+    ).verify_controlled(
+        _controlled_request(target_id, "python-pytest"),
+        target_registry,
+    )
+
+    assert verdict.status == SandboxStatus.ENVIRONMENT_ERROR
+    assert "not approved" in verdict.reason
+    assert runner.calls == []
 
 
 def test_controlled_verifier_cleans_workspace_when_runner_raises(tmp_path: Path) -> None:
