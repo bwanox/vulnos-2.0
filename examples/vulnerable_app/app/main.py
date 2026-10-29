@@ -30,6 +30,7 @@ def user():
     user_id = request.args.get("id", "")
     conn = sqlite3.connect(":memory:")
     cur = conn.cursor()
+    cur.execute("CREATE TABLE users (id INTEGER)")
     query = "SELECT * FROM users WHERE id = " + user_id
     cur.execute(query)
     return str(cur.fetchall())

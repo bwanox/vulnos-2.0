@@ -18,12 +18,17 @@ from src.sandbox.models import (
     ContainerResult,
     ControlledVerificationRequest,
 )
+from src.sandbox.exploit_runner import (
+    classify_exploit_result,
+    exploit_command,
+    validate_exploit_filename,
+)
 from src.sandbox.patch_applier import PatchApplier
 from src.sandbox.workspace import temporary_workspaces
 
 
 class ControlledVerifier:
-    """Run only registered build/test commands against explicitly approved projects."""
+    """Run registered build/test commands and safe, isolated exploit probes."""
 
     def __init__(
         self,
@@ -122,6 +127,38 @@ class ControlledVerifier:
                         baseline=True,
                     )
 
+                original_exploit_passed = False
+                if request.exploit is not None:
+                    if request.exploit.target_language != "python":
+                        return self._verdict(
+                            SandboxStatus.INCONCLUSIVE,
+                            "original_exploit",
+                            "Controlled exploit verification currently supports Python profiles only.",
+                            started,
+                            stages,
+                            request,
+                            languages,
+                        )
+                    original_exploit_passed = self._run_exploit(
+                        profile.runtime_image,
+                        workspaces.original_path,
+                        request.exploit,
+                        timeout,
+                        expected_vulnerable=True,
+                        stages=stages,
+                    )
+                    if not original_exploit_passed:
+                        return self._security_verdict(
+                            SandboxStatus.INCONCLUSIVE,
+                            "original_exploit",
+                            "The generated exploit did not demonstrate the expected baseline behavior.",
+                            started,
+                            stages,
+                            request,
+                            languages,
+                            exploit_worked=False,
+                        )
+
                 current_stage = "patch_apply"
                 patch_stages, applied = self.patch_applier.apply(
                     profile.runtime_image,
@@ -195,18 +232,47 @@ class ControlledVerifier:
                         languages,
                     )
 
+                patched_exploit_passed = False
+                if request.exploit is not None:
+                    patched_exploit_passed = self._run_exploit(
+                        profile.runtime_image,
+                        workspaces.patched_path,
+                        request.exploit,
+                        timeout,
+                        expected_vulnerable=False,
+                        stages=stages,
+                    )
+                    if not patched_exploit_passed:
+                        return self._security_verdict(
+                            SandboxStatus.REGRESSION_FAILED,
+                            "patched_exploit",
+                            "The generated exploit still succeeds after the proposed patch.",
+                            started,
+                            stages,
+                            request,
+                            languages,
+                            exploit_worked=original_exploit_passed,
+                            exploit_blocked=False,
+                        )
+
                 return self._verdict(
-                    SandboxStatus.TESTS_PASSED,
+                    SandboxStatus.VERIFIED if request.exploit is not None else SandboxStatus.TESTS_PASSED,
                     None,
-                    (
+                    "Approved baseline and patched build/test profiles passed."
+                    if request.exploit is not None
+                    else (
                         "Approved baseline and patched build/test profiles passed. "
-                        "This is not exploit verification or proof of security."
+                        "No exploit probe was supplied, so security verification was not performed."
                     ),
                     started,
                     stages,
                     request,
                     languages,
                     existing_tests_pass=True,
+                    security_verification_performed=request.exploit is not None,
+                    exploit_worked=original_exploit_passed,
+                    exploit_blocked=patched_exploit_passed,
+                    verified=request.exploit is not None,
                 )
         except SandboxInfrastructureError as error:
             stages.append(
@@ -265,6 +331,39 @@ class ControlledVerifier:
                 return stage_result
         return None
 
+    def _run_exploit(
+        self,
+        image: str,
+        workspace: Path,
+        exploit,
+        timeout: int,
+        *,
+        expected_vulnerable: bool,
+        stages: list[SandboxStageResult],
+    ) -> bool:
+        filename = validate_exploit_filename(exploit.test_filename)
+        test_path = workspace / filename
+        test_path.write_text(exploit.test_code, encoding="utf-8")
+        try:
+            result = self.docker_runner.run(
+                image,
+                exploit_command(filename),
+                workspace,
+                timeout,
+            )
+            passed, reason = classify_exploit_result(result, expected_vulnerable)
+            stages.append(
+                _stage_result(
+                    "original_exploit" if expected_vulnerable else "patched_exploit",
+                    result,
+                    passed,
+                    reason,
+                )
+            )
+            return passed
+        finally:
+            test_path.unlink(missing_ok=True)
+
     def _failure_verdict(
         self,
         failed: SandboxStageResult,
@@ -307,10 +406,14 @@ class ControlledVerifier:
         request: ControlledVerificationRequest,
         languages: list[str],
         existing_tests_pass: bool = False,
+        security_verification_performed: bool = False,
+        exploit_worked: bool = False,
+        exploit_blocked: bool = False,
+        verified: bool = False,
     ) -> SandboxVerdict:
         return SandboxVerdict(
             status=status,
-            verified=False,
+            verified=verified,
             failed_stage=failed_stage,
             reason=reason,
             stages=stages,
@@ -324,7 +427,36 @@ class ControlledVerifier:
             build_profile_id=f"{request.profile_id}-build",
             test_profile_id=f"{request.profile_id}-test",
             detected_languages=languages,
-            security_verification_performed=False,
+            security_verification_performed=security_verification_performed,
+            exploit_triggers_on_unpatched=exploit_worked,
+            exploit_blocked_after_patch=exploit_blocked,
+        )
+
+    @classmethod
+    def _security_verdict(
+        cls,
+        status: SandboxStatus,
+        failed_stage: str,
+        reason: str,
+        started: float,
+        stages: list[SandboxStageResult],
+        request: ControlledVerificationRequest,
+        languages: list[str],
+        *,
+        exploit_worked: bool = False,
+        exploit_blocked: bool = False,
+    ) -> SandboxVerdict:
+        return cls._verdict(
+            status,
+            failed_stage,
+            reason,
+            started,
+            stages,
+            request,
+            languages,
+            security_verification_performed=True,
+            exploit_worked=exploit_worked,
+            exploit_blocked=exploit_blocked,
         )
 
 

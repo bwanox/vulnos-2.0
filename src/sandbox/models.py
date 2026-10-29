@@ -52,6 +52,7 @@ class ControlledVerificationRequest(BaseModel):
     target_id: str
     profile_id: str
     patch: PatchDiff
+    exploit: ExploitTest | None = None
     timeout_seconds: int | None = Field(default=None, ge=1, le=600)
 
     @field_validator("target_id", "profile_id")

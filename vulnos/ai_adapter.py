@@ -111,5 +111,5 @@ class RealAIEngine(AIEngine):
         return PatchDiff(
             unified_diff=patch.diff,
             explanation=patch.patch_description,
-            files_modified=patch.files_modified,
+            files_modified=patch.files_modified or [code_slice.file_path],
         )

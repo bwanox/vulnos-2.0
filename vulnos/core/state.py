@@ -12,7 +12,6 @@ lost during serialisation.
 
 from __future__ import annotations
 
-from enum import Enum
 from typing import Optional, List
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -27,14 +26,6 @@ from vulnos.core.contracts import (
     FindingStatus,
     Dependency,
 )
-
-
-class FindingStatus(str, Enum):
-    OPEN = "OPEN"
-    TRIAGED_FALSE_POSITIVE = "FALSE_POSITIVE"
-    IN_PROGRESS = "IN_PROGRESS"
-    RESOLVED_VERIFIED = "RESOLVED_VERIFIED"
-    UNRESOLVED = "UNRESOLVED"
 
 
 class ScanState(BaseModel):
@@ -66,6 +57,7 @@ class ScanState(BaseModel):
     # --- retry budget ---
     iteration_count: int = 0
     max_iterations: int = 3
+    failure_logs: str = ""
 
     # --- lifecycle ---
     status: FindingStatus = FindingStatus.OPEN  # OPEN | TRIAGED_FALSE_POSITIVE | IN_PROGRESS | RESOLVED_VERIFIED | UNRESOLVED

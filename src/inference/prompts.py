@@ -113,7 +113,11 @@ def build_red_team_messages(
         f'  "test_filename": string (e.g., "{test_filename_hint}"),\n'
         f'  "runner_command": string (e.g., "{runner_hint}"),\n'
         '  "exploit_description": string\n'
-        "}"
+        "}\n"
+        "The test file is copied into the repository workspace root before execution. "
+        "Import the target application using repository-relative imports (for the demo app, "
+        "use `from app.main import app`); do not assume the original absolute path or add "
+        "an examples/ prefix. Use only the fixed pytest runner supplied by the verifier."
     )
 
     user_content = (

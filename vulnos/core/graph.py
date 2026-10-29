@@ -94,7 +94,7 @@ async def _triage(state: ScanState) -> dict | None:
 
 async def _threat_intel(state: ScanState) -> dict | None:
     _emit(state._service_bus or asyncio.Queue(), state, "stage_started", {"stage": "threat_intel"})
-    cves = await state._service_ai.enrich_cve(state.slices, state.slice)  # type: ignore[arg-type]
+    cves = await state._service_ai.enrich_cve([], state.slice)  # type: ignore[arg-type]
     state.cve_references = cves
     state.tokens_used += 15
     _emit(state._service_bus or asyncio.Queue(), state, "cve_found", {"cve_ids": cves})
@@ -117,7 +117,7 @@ async def _red_exploit(state: ScanState) -> dict | None:
 async def _blue_patch(state: ScanState) -> dict | None:
     _emit(state._service_bus or asyncio.Queue(), state, "stage_started", {"stage": "blue_patch"})
     patch = await state._service_ai.generate_patch(
-        state.slice, state.assessment
+        state.slice, state.assessment, prev_failure_logs=state.failure_logs
     )  # type: ignore[arg-type]
     state.patch = patch
     state.tokens_used += 50  # rough Ultra estimate
@@ -131,7 +131,7 @@ async def _blue_patch(state: ScanState) -> dict | None:
 
 async def _sandbox_verify(state: ScanState, sandbox: object) -> dict | None:  # SandboxRunner
     _emit(state._service_bus or asyncio.Queue(), state, "stage_started", {"stage": "sandbox_verify"})
-    verdict = await sandbox.verify(state.slice, state.exploit, state.patch)  # type: ignore[arg-type]
+    verdict = await sandbox.verify(state.repo_path, state.exploit, state.patch)  # type: ignore[arg-type]
     state.verdict = verdict
     state.tokens_used += 5  # local sandbox, no LLM cost
     state.model_used = ""
@@ -142,6 +142,8 @@ async def _sandbox_verify(state: ScanState, sandbox: object) -> dict | None:  # 
         "tests_passed": verdict.tests_passed,
         "tests_total": verdict.tests_total,
         "verified": verdict.verified,
+        "reason": verdict.reason,
+        "security_verification_performed": verdict.security_verification_performed,
     })
 
     if verdict.verified:

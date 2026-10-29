@@ -90,7 +90,14 @@ class PatchApplier:
             patch_file.write_text(patch.diff, encoding="utf-8")
             check = self.docker_runner.run(
                 image,
-                ["git", "apply", "--check", f"/workspace/{_PATCH_FILENAME}"],
+                [
+                    "git",
+                    "apply",
+                    "--recount",
+                    "--unidiff-zero",
+                    "--check",
+                    f"/workspace/{_PATCH_FILENAME}",
+                ],
                 workspace,
                 timeout_seconds,
             )
@@ -101,7 +108,13 @@ class PatchApplier:
 
             applied = self.docker_runner.run(
                 image,
-                ["git", "apply", f"/workspace/{_PATCH_FILENAME}"],
+                [
+                    "git",
+                    "apply",
+                    "--recount",
+                    "--unidiff-zero",
+                    f"/workspace/{_PATCH_FILENAME}",
+                ],
                 workspace,
                 timeout_seconds,
             )

@@ -557,10 +557,18 @@ def _slice_file_ast(path: Path, source: str) -> list[CodeSlice]:
             if not changed:
                 break
 
-        # Sinks: check the first argument of each call statement.
-        for stmt in node.body:
-            if isinstance(stmt, _ast.Expr) and isinstance(stmt.value, _ast.Call):
-                call = stmt.value
+        # Sinks: inspect calls nested in ``with`` and other compound statements,
+        # while keeping the analysis intra-procedural.
+        calls: list[_ast.Call] = []
+        for descendant in _ast.walk(node):
+            if descendant is node:
+                continue
+            if isinstance(descendant, (_ast.FunctionDef, _ast.AsyncFunctionDef, _ast.Lambda)):
+                continue
+            if isinstance(descendant, _ast.Call):
+                calls.append(descendant)
+
+        for call in calls:
                 callee = _ast_callee_name(call, import_alias)
                 sink_type = _match_sink(callee)
                 if sink_type is None:
@@ -582,7 +590,7 @@ def _slice_file_ast(path: Path, source: str) -> list[CodeSlice]:
                         end_line=end_line,
                         function_name=fn_name,
                         function_body=function_body,
-                        entry_point="",
+                        entry_point=_ast_route_path(node, import_alias),
                         sink_type=sink_type,
                         sink_line=sink_line,
                         imports=list(import_alias.keys()),
@@ -591,6 +599,20 @@ def _slice_file_ast(path: Path, source: str) -> list[CodeSlice]:
                     )
                 )
     return slices
+
+
+def _ast_route_path(node: _ast.FunctionDef | _ast.AsyncFunctionDef, import_alias: dict[str, str]) -> str:
+    """Return the first literal route path from a Flask/FastAPI decorator."""
+    for decorator in node.decorator_list:
+        if not isinstance(decorator, _ast.Call) or not isinstance(decorator.func, _ast.Attribute):
+            continue
+        if _ast_attr_chain(decorator.func) not in _ROUTE_DECORATORS:
+            continue
+        if decorator.args and isinstance(decorator.args[0], _ast.Constant):
+            value = decorator.args[0].value
+            if isinstance(value, str):
+                return value
+    return ""
 
 
 def _ast_source_call(value, import_alias: dict[str, str]) -> bool:
@@ -645,7 +667,13 @@ def slice_file(path: str | Path) -> list[CodeSlice]:
     source = path.read_text(encoding="utf-8")
     if _HAS_TREE_SITTER:
         f = _TsFile(path, source)
-        return _slice_file_ts(f)
+        tree_sitter_slices = _slice_file_ts(f)
+        # The stdlib AST path handles compound statements more completely
+        # across tree-sitter grammar versions while remaining deterministic.
+        ast_slices = _slice_file_ast(path, source)
+        if len(ast_slices) >= len(tree_sitter_slices):
+            return ast_slices
+        return tree_sitter_slices
     return _slice_file_ast(path, source)
 
 

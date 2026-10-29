@@ -84,6 +84,9 @@ pip install -e ".[dev]"
 cp .env.example .env
 # Edit .env with your Nebius, Tavily, and GitHub API keys
 
+# Build the approved offline sandbox runtime
+docker build -f docker/python-pytest.Dockerfile -t vulnos/python:3.12 .
+
 # Run the orchestrator
 python -m src.orchestrator.main --repo ./vulnerable_app
 

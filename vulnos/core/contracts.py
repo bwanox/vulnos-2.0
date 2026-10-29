@@ -142,6 +142,8 @@ class SandboxVerdict(BaseModel):
     tests_total: int = 0
     exit_codes: list[int] = Field(default_factory=list)
     logs: str = ""
+    reason: str = ""
+    security_verification_performed: bool = False
 
     @property
     def verified(self) -> bool:
