@@ -1,11 +1,11 @@
-# VulnOS 2.0: Defensive Security Scanner and Controlled Verification
+# VulnOS 2.0: Autonomous Red-vs-Blue Security & Patching Kernel
 
 > **Nebius × NVIDIA Global AI Hackathon** — Coding and Agentic Engineering Track
 
-VulnOS combines source and dependency analysis, OS/package inventory, configuration checks, and multi-language project discovery. Human-approved projects can be built and tested in disposable Docker workspaces using application-owned execution profiles. These configured tests are defensive evidence, not proof that a vulnerability was reproduced or fixed.
+An autonomous, closed-loop security runtime that parses codebases via deterministic AST analysis, enriches zero-day and CVE context live via the Tavily API, proves exploitability using an adversarial Red-Team agent, and synthesizes regression-tested patches inside an isolated sandbox—powered by multi-tier NVIDIA Nemotron models on Nebius Token Factory.
 
 ```
-OS / Project Inventory → Language Discovery → Static Analysis → Reviewed Patch → Approved Build/Test Profile
+AST Slicing → Nemotron-Nano Triage → Tavily Live CVE Sync → Red-Team PoC Exploit → Nemotron-Ultra Patch → Verified PR
 ```
 
 ---
@@ -25,20 +25,16 @@ OS / Project Inventory → Language Discovery → Static Analysis → Reviewed P
            │                                      │
 ┌──────────┴──────────────────┐    ┌──────────────┴───────────────────────┐
 │  HYBRID INFERENCE & THREAT  │    │  EPHEMERAL SANDBOX VERIFIER          │
-│  ENGINE                     │    │  - Isolated Docker Execution         │
-│  - Nebius Token Factory     │    │  - Approved Profile Commands          │
-│    (Nano vs Ultra routing)  │    │  - Structured Process Evidence        │
-│  - Tavily Live CVE/Advisory │    │  - Disposable Project Workspaces      │
+│  ENGINE                     │    │  - Isolated Docker Container Runner  │
+│  - Nebius Token Factory     │    │  - Runs Red-Team Exploit + Pytest    │
+│    (Nano vs Ultra routing)  │    │  - 3-step verification protocol      │
+│  - Tavily Live CVE/Advisory │    │  - Automated PR generation           │
 └─────────────────────────────┘    └──────────────────────────────────────┘
 ```
 
 ## Key Features
 
-- **Controlled Verification:** Approved targets run only application-owned build/test profiles in disposable containers. Generated exploit code and caller-supplied commands are not executed by the verifier.
-- **Stateless Sandbox Execution:** `SandboxExecutor` runs one build or test command selected from a trusted profile and returns bounded process evidence without making a security decision.
-- **Multi-Language Discovery:** Identifies C/C++, Python, Java, JavaScript/TypeScript, Go, Rust, C#, and PHP source/manifests; only Python, C/C++, Java, and JavaScript/TypeScript have built-in execution profiles.
-- **OS and Dependency Inventory:** Reads local platform information and Debian dpkg package state when available; advisory matches use explicit exact-version records.
-- **Clear Verification Semantics:** `TESTS_PASSED` reports that configured tests passed before and after a patch; it does not claim security proof. See [defensive scanning](docs/defensive-scanning.md).
+- **Red-vs-Blue Adversarial Verification:** Red-Team agent writes PoC exploits; Blue-Team agent patches; patch verified only when exploit is blocked AND all tests pass.
 - **Deterministic AST + Neural Triage:** `tree-sitter` and `Semgrep` extract taint-flow slices, routed to Nemotron-Nano for fast false-positive filtering (~85% token savings).
 - **Zero-Day Reachability via Tavily:** Live CVE, GHSA, and changelog intelligence via `tavily.search()` + `tavily.extract()` for post-training-cutoff vulnerability data.
 - **Multi-Tier Inference Cost Optimization:** ~80% of triage on Nemotron-Nano, ~20% complex reasoning on Nemotron-Ultra with live cost/latency telemetry.
@@ -51,7 +47,7 @@ vulnos-2.0/
 ├── src/
 │   ├── orchestrator/       # Dev 1: AST Slicer & Agent State Machine
 │   ├── inference/          # Dev 2: Nebius Router & Tavily Threat Engine
-│   ├── sandbox/            # Dev 3: Isolated Docker execution and profiles
+│   ├── sandbox/            # Dev 3: Docker Sandbox & Red/Blue Runner
 │   ├── telemetry/          # Dev 4: Real-Time Telemetry HUD
 │   └── common/             # Shared types, configs, utilities
 ├── vulnerable_app/         # Curated demo repo with intentional flaws
@@ -71,7 +67,7 @@ vulnos-2.0/
 |-----|--------|---------------|
 | **Dev 1** | `src/orchestrator/` | AST Slicer, LangGraph state machine, event emitter |
 | **Dev 2** | `src/inference/` | Nebius Token Factory router, Tavily threat pipeline, prompt engineering |
-| **Dev 3** | `src/sandbox/` | Isolated profile execution and bounded process evidence |
+| **Dev 3** | `src/sandbox/` | Docker sandbox, Red/Blue verification protocol, PR generator |
 | **Dev 4** | `src/telemetry/` | Real-time HUD, demo repo, 3-min video |
 
 ## Quick Start

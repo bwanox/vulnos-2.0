@@ -21,7 +21,7 @@ async def generate_exploit(
     assessment: VulnAssessment,
     intelligence: TavilyIntelligence,
 ) -> ExploitTest:
-    """Generate a Red-Team PoC exploit test using Nemotron-Ultra."""
+    """Generate a Red-Team PoC exploit test or harness using Nemotron-Ultra."""
     messages = build_red_team_messages(assessment, intelligence)
     response = await client.complete_ultra(
         messages=messages,
@@ -58,4 +58,6 @@ async def generate_exploit(
         test_code=parsed.test_code,
         test_filename=parsed.test_filename or "test_exploit.py",
         exploit_description=parsed.exploit_description,
+        target_language=assessment.slice.target_language,
+        runner_command=parsed.runner_command or "pytest",
     )

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from src.common.models import (
-    EXPLOIT_FAILURE_MARKER,
     CodeSlice,
     ExploitTest,
     TavilyIntelligence,
@@ -15,11 +14,9 @@ def build_triage_messages(slice_obj: CodeSlice) -> list[dict[str, str]]:
     """Build messages for Nemotron-Nano triage."""
     system_prompt = (
         "You are an expert static security analyst. "
-        "Analyze the provided code slice and determine if it contains a genuine security "
-        "vulnerability "
-        "(e.g., SQL injection, command injection, path traversal, deserialization flaw). "
-        "Filter out false positives where sanitization or upstream validation already neutralizes "
-        "the sink. "
+        "Analyze the provided code slice and determine if it contains a genuine security vulnerability "
+        "(e.g., SQL injection, command injection, path traversal, buffer overflow, memory corruption). "
+        "Filter out false positives where sanitization or upstream validation already neutralizes the sink. "
         "You must respond with valid JSON matching this schema:\n"
         "{\n"
         '  "is_vulnerable": boolean,\n'
@@ -31,13 +28,14 @@ def build_triage_messages(slice_obj: CodeSlice) -> list[dict[str, str]]:
     )
 
     user_content = (
+        f"Target Language: {slice_obj.target_language}\n"
         f"File Path: {slice_obj.file_path}\n"
         f"Function Name: {slice_obj.function_name}\n"
         f"Sink Type: {slice_obj.sink_type}\n"
         f"Entry Point: {slice_obj.entry_point}\n"
         f"Imports: {', '.join(slice_obj.imports)}\n\n"
-        f"Function Body:\n```python\n{slice_obj.function_body}\n```\n\n"
-        f"Caller Context:\n```python\n{slice_obj.caller_context}\n```"
+        f"Function Body:\n```{slice_obj.target_language}\n{slice_obj.function_body}\n```\n\n"
+        f"Caller Context:\n```{slice_obj.target_language}\n{slice_obj.caller_context}\n```"
     )
 
     return [
@@ -50,27 +48,46 @@ def build_red_team_messages(
     assessment: VulnAssessment,
     intelligence: TavilyIntelligence,
 ) -> list[dict[str, str]]:
-    """Build messages for Red-Team exploit test generation."""
+    """Build messages for Red-Team exploit test or harness generation."""
+    lang = assessment.slice.target_language.lower()
+
+    if lang in ("c", "cpp"):
+        test_filename_hint = "exploit.c"
+        runner_hint = "gcc -o exploit exploit.c && ./exploit"
+        lang_instructions = (
+            "Write a standalone C/C++ exploit program (e.g. exploit.c) that compiles with gcc/g++ "
+            "and actively triggers the memory corruption/buffer overflow or vulnerability, exiting with a non-zero status on success."
+        )
+    elif lang == "go":
+        test_filename_hint = "exploit_test.go"
+        runner_hint = "go test -v"
+        lang_instructions = "Write a Go unit test file (*_test.go) that triggers the vulnerability and fails when unpatched."
+    elif lang == "rust":
+        test_filename_hint = "exploit.rs"
+        runner_hint = "rustc exploit.rs && ./exploit"
+        lang_instructions = "Write a Rust harness that exploits the vulnerability."
+    else:
+        test_filename_hint = "test_exploit.py"
+        runner_hint = "pytest"
+        lang_instructions = "Write a standalone pytest test function that actively exploits the vulnerability and fails/triggers on the unpatched code."
+
     system_prompt = (
-        "You are an adversarial Red-Team penetration testing agent. "
-        "Given a vulnerable code slice and live threat intelligence (CVE/advisory context), "
-        "write exactly one standalone pytest test function that fails on the unpatched code "
-        "only because its vulnerability-specific assertion fails. The assertion message for that "
-        f"expected failure must begin with '{EXPLOIT_FAILURE_MARKER}'. "
-        "The same test must pass after the vulnerability is fixed. "
-        "Do not use crashes, import errors, or setup failures as evidence of exploitability. "
+        f"You are an adversarial Red-Team penetration testing agent targeting {lang.upper()} systems. "
+        f"Given a vulnerable code slice and live threat intelligence (CVE/advisory context), {lang_instructions} "
         "You must respond with valid JSON matching this schema:\n"
         "{\n"
-        '  "test_code": string (valid python pytest function),\n'
-        '  "test_filename": string (e.g., "test_exploit.py"),\n'
+        f'  "test_code": string (valid {lang} exploit code/test),\n'
+        f'  "test_filename": string (e.g., "{test_filename_hint}"),\n'
+        f'  "runner_command": string (e.g., "{runner_hint}"),\n'
         '  "exploit_description": string\n'
         "}"
     )
 
     user_content = (
+        f"Target Language: {lang}\n"
         f"Vulnerability Type: {assessment.vulnerability_type} ({assessment.cwe_id})\n"
         f"File: {assessment.slice.file_path}, Function: {assessment.slice.function_name}\n\n"
-        f"Code Body:\n```python\n{assessment.slice.function_body}\n```\n\n"
+        f"Code Body:\n```{lang}\n{assessment.slice.function_body}\n```\n\n"
         f"Live Threat Intelligence (Tavily):\n"
         f"CVE IDs: {', '.join(intelligence.cve_ids)}\n"
         f"Mitigation Pattern: {intelligence.mitigation_pattern}\n"
@@ -89,13 +106,13 @@ def build_blue_team_messages(
     failed_patch_error: str | None = None,
 ) -> list[dict[str, str]]:
     """Build messages for Blue-Team patch synthesis."""
+    lang = assessment.slice.target_language.lower()
+
     system_prompt = (
-        "You are a Blue-Team defensive security engineer. "
-        "Given a vulnerable code slice, live threat intelligence, and a Red-Team PoC exploit test, "
-        "synthesize a minimal surgical git unified diff or patch that neutralizes the "
-        "vulnerability while ensuring all normal execution and existing tests continue to pass. "
-        "Set the `diff` field to a valid unified diff accepted by `git apply`; do not use "
-        "search/replace blocks. "
+        f"You are a Blue-Team defensive security engineer specializing in {lang.upper()} systems. "
+        "Given a vulnerable code slice, live threat intelligence, and a Red-Team PoC exploit test/harness, "
+        "synthesize a minimal surgical git unified diff or patch that neutralizes the vulnerability "
+        "while ensuring all normal execution and existing tests continue to pass. "
         "You must respond with valid JSON matching this schema:\n"
         "{\n"
         '  "diff": string (unified diff format),\n'
@@ -105,10 +122,11 @@ def build_blue_team_messages(
     )
 
     user_content = (
+        f"Target Language: {lang}\n"
         f"Vulnerability: {assessment.vulnerability_type} ({assessment.cwe_id})\n"
         f"Target File: {assessment.slice.file_path}\n\n"
-        f"Vulnerable Code:\n```python\n{assessment.slice.function_body}\n```\n\n"
-        f"Red-Team Exploit Test:\n```python\n{exploit.test_code}\n```\n\n"
+        f"Vulnerable Code:\n```{lang}\n{assessment.slice.function_body}\n```\n\n"
+        f"Red-Team Exploit Harness ({exploit.test_filename}):\n```{lang}\n{exploit.test_code}\n```\n\n"
         f"Tavily Mitigation Guidance:\n{intelligence.mitigation_pattern}\n"
     )
 
@@ -117,8 +135,7 @@ def build_blue_team_messages(
             f"\n[SELF-HEALING RETRY NOTICE]\n"
             f"Your previous patch attempt failed verification with the following error/traceback:\n"
             f"```\n{failed_patch_error}\n```\n"
-            "Analyze why the previous patch failed or caused a regression and produce a corrected "
-            "patch."
+            "Analyze why the previous patch failed or caused a compilation/test regression and produce a corrected patch."
         )
 
     return [

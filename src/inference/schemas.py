@@ -16,11 +16,12 @@ class TriageResponseSchema(BaseModel):
 
 
 class ExploitResponseSchema(BaseModel):
-    """Schema for Red-Team PoC exploit test output."""
+    """Schema for Red-Team PoC exploit test or harness output."""
 
     test_code: str
     test_filename: str = "test_exploit.py"
     exploit_description: str = ""
+    runner_command: str = "pytest"
 
 
 class PatchResponseSchema(BaseModel):

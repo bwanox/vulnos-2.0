@@ -7,8 +7,6 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-EXPLOIT_FAILURE_MARKER = "VULNOS_EXPECTED_EXPLOIT_FAILURE:"
-
 
 class AgentState(str, Enum):
     """Pipeline state machine states."""
@@ -31,8 +29,9 @@ class CodeSlice(BaseModel):
     function_body: str
     caller_context: str = ""
     imports: list[str] = Field(default_factory=list)
-    sink_type: str = ""  # e.g., "sql_query", "subprocess", "deserializer"
+    sink_type: str = ""  # e.g., "sql_query", "subprocess", "deserializer", "buffer_overflow"
     entry_point: str = ""  # e.g., API route or CLI input
+    target_language: str = "python"  # python, c, cpp, go, rust, javascript, etc.
 
 
 class DependencyInfo(BaseModel):
@@ -65,11 +64,13 @@ class TavilyIntelligence(BaseModel):
 
 
 class ExploitTest(BaseModel):
-    """Legacy Red-Team test payload; controlled verification does not execute it."""
+    """Red-Team generated PoC exploit test or harness."""
 
     test_code: str
     test_filename: str = "test_exploit.py"
     exploit_description: str = ""
+    target_language: str = "python"
+    runner_command: str = "pytest"  # e.g., "pytest", "gcc -o exploit exploit.c && ./exploit", "go test", "cargo test"
 
 
 class PatchDiff(BaseModel):
@@ -80,32 +81,6 @@ class PatchDiff(BaseModel):
     files_modified: list[str] = Field(default_factory=list)
 
 
-class SandboxStatus(str, Enum):
-    """Top-level outcomes returned by the sandbox verifier."""
-
-    VERIFIED = "VERIFIED"
-    TESTS_PASSED = "TESTS_PASSED"
-    BUILD_FAILED = "BUILD_FAILED"
-    PATCH_FAILED = "PATCH_FAILED"
-    REGRESSION_FAILED = "REGRESSION_FAILED"
-    INCONCLUSIVE = "INCONCLUSIVE"
-    ENVIRONMENT_ERROR = "ENVIRONMENT_ERROR"
-
-
-class SandboxStageResult(BaseModel):
-    """Captured outcome and diagnostics for one verification stage."""
-
-    stage: str
-    status: str
-    command: list[str] = Field(default_factory=list)
-    exit_code: int | None = None
-    stdout: str = ""
-    stderr: str = ""
-    duration_seconds: float = 0.0
-    timed_out: bool = False
-    reason: str = ""
-
-
 class SandboxVerdict(BaseModel):
     """Result from the ephemeral sandbox verification."""
 
@@ -113,21 +88,10 @@ class SandboxVerdict(BaseModel):
     exploit_blocked_after_patch: bool = False
     existing_tests_pass: bool = False
     verified: bool = False
-    status: SandboxStatus = SandboxStatus.INCONCLUSIVE
-    failed_stage: str | None = None
-    reason: str = ""
-    stages: list[SandboxStageResult] = Field(default_factory=list)
     stdout: str = ""
     stderr: str = ""
     exit_code: int = -1
     retry_count: int = 0
-    duration_seconds: float = 0.0
-    target_id: str | None = None
-    execution_profile_id: str | None = None
-    build_profile_id: str | None = None
-    test_profile_id: str | None = None
-    detected_languages: list[str] = Field(default_factory=list)
-    security_verification_performed: bool = False
 
 
 class TelemetryEvent(BaseModel):

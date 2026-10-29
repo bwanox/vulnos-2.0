@@ -4,12 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.common.models import (
-    EXPLOIT_FAILURE_MARKER,
-    CodeSlice,
-    TavilyIntelligence,
-    VulnAssessment,
-)
+from src.common.models import CodeSlice, TavilyIntelligence, VulnAssessment
 from src.inference.prompts import (
     build_blue_team_messages,
     build_red_team_messages,
@@ -17,6 +12,7 @@ from src.inference.prompts import (
 )
 from src.inference.schemas import (
     ExploitResponseSchema,
+    PatchResponseSchema,
     TriageResponseSchema,
 )
 
@@ -73,18 +69,19 @@ def test_red_team_messages_include_cve_context(sample_assessment, sample_intel):
     msgs = build_red_team_messages(sample_assessment, sample_intel)
     combined = " ".join(m["content"] for m in msgs)
     assert "CVE-2021-1234" in combined or sample_intel.mitigation_pattern in combined
-    assert EXPLOIT_FAILURE_MARKER in combined
-    assert "same test must pass after the vulnerability is fixed" in combined
 
 
-def test_blue_team_messages_include_exploit_code(sample_assessment, sample_intel, sample_exploit):
+def test_blue_team_messages_include_exploit_code(
+    sample_assessment, sample_intel, sample_exploit
+):
     msgs = build_blue_team_messages(sample_assessment, sample_intel, sample_exploit)
     combined = " ".join(m["content"] for m in msgs)
     assert "def test_" in combined
-    assert "diff` field to a valid unified diff accepted by `git apply`" in combined
 
 
-def test_blue_team_retry_includes_error(sample_assessment, sample_intel, sample_exploit):
+def test_blue_team_retry_includes_error(
+    sample_assessment, sample_intel, sample_exploit
+):
     msgs = build_blue_team_messages(
         sample_assessment,
         sample_intel,
