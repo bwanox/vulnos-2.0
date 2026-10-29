@@ -33,6 +33,13 @@ class SandboxConfig:
     cpu_limit: int = 1
     timeout: int = 120
     network_mode: str = "none"
+    approved_images: tuple[str, ...] = (
+        "trusted-runtime:local",
+        "vulnos/python:3.12",
+        "vulnos/cpp:stable",
+        "vulnos/java:21",
+        "vulnos/node:22",
+    )
 
 
 @dataclass
@@ -63,15 +70,9 @@ def load_config(env_file: str = ".env") -> VulnOSConfig:
     return VulnOSConfig(
         nebius=NebisConfig(
             api_key=os.getenv("NEBIUS_API_KEY", ""),
-            api_base=os.getenv(
-                "NEBIUS_API_BASE", "https://api.tokenfactory.nebius.com/v1/"
-            ),
-            nano_model=os.getenv(
-                "NEMOTRON_NANO_MODEL", "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
-            ),
-            ultra_model=os.getenv(
-                "NEMOTRON_ULTRA_MODEL", "nvidia/Nemotron-3-Ultra-550b-a55b"
-            ),
+            api_base=os.getenv("NEBIUS_API_BASE", "https://api.tokenfactory.nebius.com/v1/"),
+            nano_model=os.getenv("NEMOTRON_NANO_MODEL", "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"),
+            ultra_model=os.getenv("NEMOTRON_ULTRA_MODEL", "nvidia/Nemotron-3-Ultra-550b-a55b"),
         ),
         tavily=TavilyConfig(
             api_key=os.getenv("TAVILY_API_KEY", ""),

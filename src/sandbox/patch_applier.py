@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from src.common.models import PatchDiff, SandboxStageResult
@@ -9,6 +10,30 @@ from src.sandbox.docker_runner import DockerCommandRunner
 from src.sandbox.models import ContainerResult
 
 _PATCH_FILENAME = ".vulnos-proposed.patch"
+_DIFF_HEADER = re.compile(r"^diff --git a/(.+) b/(.+)$")
+
+
+def _validate_patch_paths(patch: PatchDiff) -> None:
+    paths: list[str] = []
+    for line in patch.diff.splitlines():
+        match = _DIFF_HEADER.match(line)
+        if match:
+            paths.extend(match.groups())
+        elif line.startswith(("--- a/", "+++ b/")):
+            paths.append(line[6:])
+    if not paths:
+        raise ValueError("Patch must identify at least one workspace-relative file")
+    for value in paths:
+        if value == "/dev/null":
+            continue
+        if "\\" in value:
+            raise ValueError("Patch paths must use workspace-relative POSIX separators")
+        if (
+            value.startswith("/")
+            or any(part in {"", ".", "..", ".git"} for part in value.split("/"))
+            or Path(value).name == _PATCH_FILENAME
+        ):
+            raise ValueError(f"Patch path is outside the authorized workspace: {value}")
 
 
 class PatchApplier:
@@ -29,6 +54,15 @@ class PatchApplier:
                 stage="patch_apply",
                 status="failed",
                 reason="Patch diff is empty",
+            )
+            return [failed], False
+        try:
+            _validate_patch_paths(patch)
+        except ValueError as error:
+            failed = SandboxStageResult(
+                stage="patch_check",
+                status="failed",
+                reason=str(error),
             )
             return [failed], False
 

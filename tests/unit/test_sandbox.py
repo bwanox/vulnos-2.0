@@ -56,71 +56,6 @@ def _container_result(
     )
 
 
-class FakeDockerRunner:
-    def __init__(
-        self,
-        *,
-        patch_failure: bool = False,
-        regression_failure: bool = False,
-        regression_timeout: bool = False,
-        inconclusive_original: bool = False,
-        still_vulnerable: bool = False,
-    ) -> None:
-        self.patch_failure = patch_failure
-        self.regression_failure = regression_failure
-        self.regression_timeout = regression_timeout
-        self.inconclusive_original = inconclusive_original
-        self.still_vulnerable = still_vulnerable
-        self.calls: list[tuple[list[str], Path, str, int | None]] = []
-
-    def run(
-        self,
-        image: str,
-        command: list[str],
-        workspace: str | Path,
-        timeout_seconds: int | None = None,
-    ) -> ContainerResult:
-        path = Path(workspace)
-        self.calls.append((command, path, image, timeout_seconds))
-        if command[0] == "git":
-            failed = self.patch_failure
-            return _container_result(
-                command,
-                1 if failed else 0,
-                stderr="patch rejected" if failed else "",
-            )
-        if "test_exploit.py" in command:
-            if path.name == "original":
-                if self.inconclusive_original:
-                    return _container_result(command, 1, stderr="1 failed")
-                return _container_result(
-                    command,
-                    1,
-                    stderr=(
-                        f"AssertionError: {EXPLOIT_FAILURE_MARKER} vulnerable behavior observed\n"
-                        "1 failed in 0.01s"
-                    ),
-                )
-            if self.still_vulnerable:
-                return _container_result(
-                    command,
-                    1,
-                    stderr=(
-                        f"AssertionError: {EXPLOIT_FAILURE_MARKER} vulnerable behavior observed\n"
-                        "1 failed in 0.01s"
-                    ),
-                )
-            return _container_result(command, 0, stdout="1 passed in 0.01s")
-        if self.regression_timeout:
-            return _container_result(command, None, timed_out=True)
-        return _container_result(
-            command,
-            1 if self.regression_failure else 0,
-            stdout="2 passed in 0.02s" if not self.regression_failure else "",
-            stderr="regression assertion failed" if self.regression_failure else "",
-        )
-
-
 def test_docker_runner_collects_logs_and_nonzero_exit(tmp_path: Path) -> None:
     container = Mock()
     container.wait.return_value = {"StatusCode": 23}
@@ -195,7 +130,19 @@ def test_docker_runner_surfaces_image_startup_failure(tmp_path: Path) -> None:
     client.images.get.side_effect = docker.errors.DockerException("image unavailable")
 
     with pytest.raises(SandboxInfrastructureError, match="Docker command failed"):
-        DockerRunner(client=client).run("missing:local", ["true"], tmp_path)
+        DockerRunner(client=client).run("trusted-runtime:local", ["true"], tmp_path)
+
+
+def test_docker_runner_removes_container_when_start_raises(tmp_path: Path) -> None:
+    container = Mock()
+    container.start.side_effect = docker.errors.DockerException("start failed")
+    client = Mock()
+    client.containers.create.return_value = container
+
+    with pytest.raises(SandboxInfrastructureError, match="Docker command failed"):
+        DockerRunner(client=client).run("trusted-runtime:local", ["true"], tmp_path)
+
+    container.remove.assert_called_once_with(force=True)
 
 
 def test_interpret_exploit_result_rejects_unrelated_failure() -> None:
@@ -260,121 +207,13 @@ def test_workspace_copies_are_isolated_and_cleaned(tmp_path: Path) -> None:
     assert not patched_path.exists()
 
 
-def test_verifier_maps_success_and_cleans_workspaces(tmp_path: Path) -> None:
+def test_verifier_disables_legacy_generated_exploit_execution(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()
-    (source / "app.py").write_text("source", encoding="utf-8")
-    docker_runner = FakeDockerRunner()
+    docker_runner = Mock()
 
     verdict = SandboxVerifier(docker_runner=docker_runner).verify(_request(source))
 
-    assert verdict.status == SandboxStatus.VERIFIED
-    assert verdict.verified
-    assert verdict.exploit_triggers_on_unpatched
-    assert verdict.exploit_blocked_after_patch
-    assert verdict.existing_tests_pass
-    assert [stage.stage for stage in verdict.stages] == [
-        "original_exploit",
-        "patch_check",
-        "patch_apply",
-        "patched_exploit",
-        "regression_tests",
-    ]
-    original_workspace = docker_runner.calls[0][1]
-    patched_workspace = docker_runner.calls[1][1]
-    assert original_workspace != patched_workspace
-    assert not original_workspace.exists()
-    assert not patched_workspace.exists()
-    assert (source / "app.py").read_text(encoding="utf-8") == "source"
-
-
-def test_verifier_maps_patch_application_failure(tmp_path: Path) -> None:
-    source = tmp_path / "source"
-    source.mkdir()
-
-    verdict = SandboxVerifier(docker_runner=FakeDockerRunner(patch_failure=True)).verify(
-        _request(source)
-    )
-
-    assert verdict.status == SandboxStatus.PATCH_FAILED
-    assert verdict.failed_stage == "patch_check"
-    assert not verdict.verified
-
-
-def test_verifier_maps_regression_failure(tmp_path: Path) -> None:
-    source = tmp_path / "source"
-    source.mkdir()
-
-    verdict = SandboxVerifier(docker_runner=FakeDockerRunner(regression_failure=True)).verify(
-        _request(source)
-    )
-
-    assert verdict.status == SandboxStatus.REGRESSION_FAILED
-    assert verdict.failed_stage == "regression_tests"
-    assert verdict.exploit_blocked_after_patch
-    assert not verdict.existing_tests_pass
-
-
-def test_verifier_maps_regression_timeout_to_inconclusive(tmp_path: Path) -> None:
-    source = tmp_path / "source"
-    source.mkdir()
-
-    verdict = SandboxVerifier(docker_runner=FakeDockerRunner(regression_timeout=True)).verify(
-        _request(source)
-    )
-
     assert verdict.status == SandboxStatus.INCONCLUSIVE
-    assert verdict.failed_stage == "regression_tests"
-    assert verdict.stages[-1].timed_out
-
-
-def test_verifier_marks_unrecognized_original_failure_inconclusive(tmp_path: Path) -> None:
-    source = tmp_path / "source"
-    source.mkdir()
-
-    verdict = SandboxVerifier(docker_runner=FakeDockerRunner(inconclusive_original=True)).verify(
-        _request(source)
-    )
-
-    assert verdict.status == SandboxStatus.INCONCLUSIVE
-    assert verdict.failed_stage == "original_exploit"
-    assert not verdict.exploit_triggers_on_unpatched
-
-
-def test_verifier_detects_patch_that_does_not_block_exploit(tmp_path: Path) -> None:
-    source = tmp_path / "source"
-    source.mkdir()
-
-    verdict = SandboxVerifier(docker_runner=FakeDockerRunner(still_vulnerable=True)).verify(
-        _request(source)
-    )
-
-    assert verdict.status == SandboxStatus.PATCH_FAILED
-    assert verdict.failed_stage == "patched_exploit"
-    assert verdict.exploit_triggers_on_unpatched
-    assert not verdict.exploit_blocked_after_patch
-
-
-def test_verifier_classifies_docker_startup_as_environment_error(tmp_path: Path) -> None:
-    source = tmp_path / "source"
-    source.mkdir()
-
-    class FailedDockerRunner:
-        def run(
-            self,
-            image: str,
-            command: list[str],
-            workspace: str | Path,
-            timeout_seconds: int | None = None,
-        ) -> ContainerResult:
-            raise SandboxInfrastructureError(
-                f"Docker daemon unavailable for {image}, {command}, {workspace}, "
-                f"timeout={timeout_seconds}"
-            )
-
-    verdict = SandboxVerifier(docker_runner=FailedDockerRunner()).verify(_request(source))
-
-    assert verdict.status == SandboxStatus.ENVIRONMENT_ERROR
-    assert verdict.failed_stage == "original_exploit"
-    assert "Docker daemon unavailable" in verdict.reason
-    assert verdict.stages[-1].status == "environment_error"
+    assert verdict.security_verification_performed is False
+    docker_runner.run.assert_not_called()

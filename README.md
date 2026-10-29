@@ -1,11 +1,11 @@
-# VulnOS 2.0: Autonomous Red-vs-Blue Security & Patching Kernel
+# VulnOS 2.0: Defensive Security Scanner and Controlled Verification
 
 > **Nebius × NVIDIA Global AI Hackathon** — Coding and Agentic Engineering Track
 
-An autonomous, closed-loop security runtime that parses codebases via deterministic AST analysis, enriches zero-day and CVE context live via the Tavily API, proves exploitability using an adversarial Red-Team agent, and synthesizes regression-tested patches inside an isolated sandbox—powered by multi-tier NVIDIA Nemotron models on Nebius Token Factory.
+VulnOS combines source and dependency analysis, OS/package inventory, configuration checks, and multi-language project discovery. Human-approved projects can be built and tested in disposable Docker workspaces using application-owned execution profiles. These configured tests are defensive evidence, not proof that a vulnerability was reproduced or fixed.
 
 ```
-AST Slicing → Nemotron-Nano Triage → Tavily Live CVE Sync → Red-Team PoC Exploit → Nemotron-Ultra Patch → Verified PR
+OS / Project Inventory → Language Discovery → Static Analysis → Reviewed Patch → Approved Build/Test Profile
 ```
 
 ---
@@ -34,7 +34,10 @@ AST Slicing → Nemotron-Nano Triage → Tavily Live CVE Sync → Red-Team PoC E
 
 ## Key Features
 
-- **Red-vs-Blue Adversarial Verification:** Red-Team agent writes PoC exploits; Blue-Team agent patches; patch verified only when exploit is blocked AND all tests pass.
+- **Controlled Verification:** Approved targets run only application-owned build/test profiles in disposable containers. Generated exploit code and caller-supplied commands are not executed by the verifier.
+- **Multi-Language Discovery:** Identifies C/C++, Python, Java, JavaScript/TypeScript, Go, Rust, C#, and PHP source/manifests; only Python, C/C++, Java, and JavaScript/TypeScript have built-in execution profiles.
+- **OS and Dependency Inventory:** Reads local platform information and Debian dpkg package state when available; advisory matches use explicit exact-version records.
+- **Clear Verification Semantics:** `TESTS_PASSED` reports that configured tests passed before and after a patch; it does not claim security proof. See [defensive scanning](docs/defensive-scanning.md).
 - **Deterministic AST + Neural Triage:** `tree-sitter` and `Semgrep` extract taint-flow slices, routed to Nemotron-Nano for fast false-positive filtering (~85% token savings).
 - **Zero-Day Reachability via Tavily:** Live CVE, GHSA, and changelog intelligence via `tavily.search()` + `tavily.extract()` for post-training-cutoff vulnerability data.
 - **Multi-Tier Inference Cost Optimization:** ~80% of triage on Nemotron-Nano, ~20% complex reasoning on Nemotron-Ultra with live cost/latency telemetry.

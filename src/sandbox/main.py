@@ -1,1 +1,1 @@
-"""Dev 3: Ephemeral Docker Sandbox & Red/Blue Verification Runner."""
+"""Dev 3: Isolated Docker sandbox for approved defensive build/test profiles."""

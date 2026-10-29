@@ -75,11 +75,17 @@ class DockerRunner:
         timeout_seconds: int | None = None,
     ) -> ContainerResult:
         """Run argv directly (without a host or container shell) and remove its container."""
+        if image not in self.config.approved_images:
+            raise ValueError(f"Docker image is not in the approved image registry: {image!r}")
         if not command or any(not argument for argument in command):
             raise ValueError("command must be a non-empty argument list")
+        if any("docker.sock" in argument.lower() for argument in command):
+            raise ValueError("Commands requesting access to the Docker socket are not permitted")
         workspace_path = Path(workspace).resolve(strict=True)
         if not workspace_path.is_dir():
             raise ValueError(f"Workspace is not a directory: {workspace_path}")
+        if workspace_path == Path(workspace_path.anchor):
+            raise ValueError("A filesystem root cannot be mounted as a sandbox workspace")
 
         timeout = self.config.timeout if timeout_seconds is None else timeout_seconds
         if timeout < 1:

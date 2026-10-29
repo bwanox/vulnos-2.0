@@ -65,7 +65,7 @@ class TavilyIntelligence(BaseModel):
 
 
 class ExploitTest(BaseModel):
-    """Red-Team generated PoC exploit test."""
+    """Legacy Red-Team test payload; controlled verification does not execute it."""
 
     test_code: str
     test_filename: str = "test_exploit.py"
@@ -84,6 +84,8 @@ class SandboxStatus(str, Enum):
     """Top-level outcomes returned by the sandbox verifier."""
 
     VERIFIED = "VERIFIED"
+    TESTS_PASSED = "TESTS_PASSED"
+    BUILD_FAILED = "BUILD_FAILED"
     PATCH_FAILED = "PATCH_FAILED"
     REGRESSION_FAILED = "REGRESSION_FAILED"
     INCONCLUSIVE = "INCONCLUSIVE"
@@ -120,6 +122,12 @@ class SandboxVerdict(BaseModel):
     exit_code: int = -1
     retry_count: int = 0
     duration_seconds: float = 0.0
+    target_id: str | None = None
+    execution_profile_id: str | None = None
+    build_profile_id: str | None = None
+    test_profile_id: str | None = None
+    detected_languages: list[str] = Field(default_factory=list)
+    security_verification_performed: bool = False
 
 
 class TelemetryEvent(BaseModel):

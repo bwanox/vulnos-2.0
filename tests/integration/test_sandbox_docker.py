@@ -8,6 +8,7 @@ from pathlib import Path
 import docker
 import pytest
 
+from src.common.config import SandboxConfig
 from src.sandbox.docker_runner import DockerRunner, SandboxInfrastructureError
 
 
@@ -16,7 +17,7 @@ def test_harmless_python_command_in_docker(tmp_path: Path) -> None:
     if not image:
         pytest.skip("Set VULNOS_TEST_DOCKER_IMAGE to a trusted local Python image")
 
-    runner = DockerRunner()
+    runner = DockerRunner(config=SandboxConfig(approved_images=(image,)))
     try:
         result = runner.run(
             image,
