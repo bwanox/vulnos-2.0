@@ -18,10 +18,12 @@ from src.sandbox.adapters import (
 from src.sandbox.configuration_checks import check_project_configuration
 from src.sandbox.discovery import discover_project
 from src.sandbox.docker_runner import DockerRunner, SandboxInfrastructureError
+from src.sandbox.execution_service import SandboxExecutor
 from src.sandbox.models import (
     ApprovedProjectRegistry,
     ContainerResult,
     ControlledVerificationRequest,
+    SandboxExecutionRequest,
 )
 from src.sandbox.os_inventory import KnownAdvisory, scan_local_os
 from src.sandbox.source_analysis import analyze_project
@@ -437,3 +439,170 @@ def test_project_configuration_and_dpkg_advisory_checks_are_read_only(tmp_path: 
     assert len(report.packages) == 1
     assert report.advisory_matches[0].advisory_id == "ADV-1"
     assert any("exact versions" in item for item in report.limitations)
+
+
+def test_sandbox_executor_runs_one_registered_command_and_returns_only_evidence(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "module.py").write_text("value = 1\n", encoding="utf-8")
+    (tmp_path / "tests").mkdir()
+    registry = ApprovedProjectRegistry()
+    target_id = registry.approve_project(tmp_path)
+
+    class EvidenceRunner:
+        call: tuple[str, list[str], Path, int | None, str] | None = None
+        workspace_was_ready = False
+
+        def run(
+            self,
+            image: str,
+            command: list[str],
+            workspace: str | Path,
+            timeout_seconds: int | None = None,
+            working_directory: str = ".",
+        ) -> ContainerResult:
+            path = Path(workspace)
+            self.call = (image, command, path, timeout_seconds, working_directory)
+            self.workspace_was_ready = path.is_dir() and (path / working_directory).is_dir()
+            return ContainerResult(
+                command=command,
+                exit_code=7,
+                stdout="test output",
+                stderr="test error",
+                duration_seconds=0.25,
+            )
+
+    runner = EvidenceRunner()
+    request = SandboxExecutionRequest(
+        target_id=target_id,
+        profile_id="python-pytest",
+        operation="test",
+        working_directory="tests",
+    )
+    result = SandboxExecutor(runner, SandboxConfig()).execute(request, registry)
+
+    assert result.status == "completed"
+    assert result.exit_code == 7
+    assert result.process_started
+    assert not result.setup_error
+    assert result.runtime_image == "vulnos/python:3.12"
+    assert result.toolchain == "Python 3.12"
+    assert result.stdout == "test output"
+    assert result.stderr == "test error"
+    assert result.request_id
+    assert runner.call is not None
+    image, command, workspace, timeout, workdir = runner.call
+    assert image == result.runtime_image
+    assert command == ["python", "-m", "pytest", "-q"]
+    assert timeout == 120
+    assert workdir == "tests"
+    assert runner.workspace_was_ready
+    assert not workspace.exists()
+    assert not hasattr(result, "verified")
+
+
+def test_sandbox_executor_reports_profile_and_index_setup_errors(tmp_path: Path) -> None:
+    (tmp_path / "module.py").write_text("value = 1\n", encoding="utf-8")
+    target_registry = ApprovedProjectRegistry()
+    target_id = target_registry.approve_project(tmp_path)
+
+    class NoRunRunner:
+        def run(
+            self,
+            image: str,
+            command: list[str],
+            workspace: str | Path,
+            timeout_seconds: int | None = None,
+            working_directory: str = ".",
+        ) -> ContainerResult:
+            raise AssertionError(
+                f"Unsupported request attempted execution: "
+                f"{image}, {command}, {workspace}, {timeout_seconds}, {working_directory}"
+            )
+
+    executor = SandboxExecutor(NoRunRunner(), SandboxConfig())
+    unsupported = executor.execute(
+        SandboxExecutionRequest(
+            target_id=target_id,
+            profile_id="go-test",
+            operation="test",
+        ),
+        target_registry,
+    )
+    missing_index = executor.execute(
+        SandboxExecutionRequest(
+            target_id=target_id,
+            profile_id="python-pytest",
+            operation="build",
+            command_index=1,
+        ),
+        target_registry,
+    )
+
+    assert unsupported.status == "execution_error"
+    assert unsupported.setup_error
+    assert "Unsupported execution profile" in unsupported.reason
+    assert missing_index.status == "execution_error"
+    assert missing_index.setup_error
+    assert "Command index" in missing_index.reason
+
+
+def test_sandbox_executor_preserves_started_process_and_timeout_evidence(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "module.py").write_text("value = 1\n", encoding="utf-8")
+    target_registry = ApprovedProjectRegistry()
+    target_id = target_registry.approve_project(tmp_path)
+
+    class TimedOutRunner:
+        workspace: Path | None = None
+
+        def run(
+            self,
+            image: str,
+            command: list[str],
+            workspace: str | Path,
+            timeout_seconds: int | None = None,
+            working_directory: str = ".",
+        ) -> ContainerResult:
+            self.workspace = Path(workspace)
+            raise SandboxInfrastructureError(
+                f"timed out while collecting result: {image} {working_directory}",
+                command=command,
+                duration_seconds=timeout_seconds or 0,
+                process_started=True,
+                stdout="partial output",
+                timed_out=True,
+            )
+
+    runner = TimedOutRunner()
+    result = SandboxExecutor(runner, SandboxConfig()).execute(
+        SandboxExecutionRequest(
+            target_id=target_id,
+            profile_id="python-pytest",
+            operation="test",
+        ),
+        target_registry,
+    )
+
+    assert result.status == "timed_out"
+    assert result.timed_out
+    assert result.process_started
+    assert not result.setup_error
+    assert result.stdout == "partial output"
+    assert runner.workspace is not None
+    assert not runner.workspace.exists()
+
+
+@pytest.mark.parametrize(
+    "working_directory",
+    ["../outside", "/tmp", r"..\\outside"],
+)
+def test_execution_request_rejects_working_directory_escape(working_directory: str) -> None:
+    with pytest.raises(ValidationError, match="working_directory"):
+        SandboxExecutionRequest(
+            target_id="approved",
+            profile_id="python-pytest",
+            operation="test",
+            working_directory=working_directory,
+        )

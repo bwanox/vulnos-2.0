@@ -83,6 +83,23 @@ def temporary_workspaces(source_path: str | Path) -> Generator[WorkspacePair, No
         )
 
 
+@contextmanager
+def temporary_workspace(source_path: str | Path) -> Generator[Path, None, None]:
+    """Yield one disposable project copy for a stateless execution request."""
+    source = Path(source_path).expanduser().resolve(strict=True)
+    if not source.is_dir():
+        raise ValueError(f"Source path is not a directory: {source}")
+
+    with tempfile.TemporaryDirectory(prefix="vulnos-execution-") as temporary_root:
+        root = Path(temporary_root)
+        workspace = root / "workspace"
+        _copy_regular_tree(source, workspace)
+        getuid = getattr(os, "getuid", None)
+        if getuid is not None and getuid() == 0:
+            _assign_non_root_ownership(root)
+        yield workspace
+
+
 def _assign_non_root_ownership(root: Path) -> None:
     for current, directory_names, file_names in os.walk(root):
         current_path = Path(current)

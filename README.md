@@ -25,16 +25,17 @@ OS / Project Inventory → Language Discovery → Static Analysis → Reviewed P
            │                                      │
 ┌──────────┴──────────────────┐    ┌──────────────┴───────────────────────┐
 │  HYBRID INFERENCE & THREAT  │    │  EPHEMERAL SANDBOX VERIFIER          │
-│  ENGINE                     │    │  - Isolated Docker Container Runner  │
-│  - Nebius Token Factory     │    │  - Runs Red-Team Exploit + Pytest    │
-│    (Nano vs Ultra routing)  │    │  - 3-step verification protocol      │
-│  - Tavily Live CVE/Advisory │    │  - Automated PR generation           │
+│  ENGINE                     │    │  - Isolated Docker Execution         │
+│  - Nebius Token Factory     │    │  - Approved Profile Commands          │
+│    (Nano vs Ultra routing)  │    │  - Structured Process Evidence        │
+│  - Tavily Live CVE/Advisory │    │  - Disposable Project Workspaces      │
 └─────────────────────────────┘    └──────────────────────────────────────┘
 ```
 
 ## Key Features
 
 - **Controlled Verification:** Approved targets run only application-owned build/test profiles in disposable containers. Generated exploit code and caller-supplied commands are not executed by the verifier.
+- **Stateless Sandbox Execution:** `SandboxExecutor` runs one build or test command selected from a trusted profile and returns bounded process evidence without making a security decision.
 - **Multi-Language Discovery:** Identifies C/C++, Python, Java, JavaScript/TypeScript, Go, Rust, C#, and PHP source/manifests; only Python, C/C++, Java, and JavaScript/TypeScript have built-in execution profiles.
 - **OS and Dependency Inventory:** Reads local platform information and Debian dpkg package state when available; advisory matches use explicit exact-version records.
 - **Clear Verification Semantics:** `TESTS_PASSED` reports that configured tests passed before and after a patch; it does not claim security proof. See [defensive scanning](docs/defensive-scanning.md).
@@ -50,7 +51,7 @@ vulnos-2.0/
 ├── src/
 │   ├── orchestrator/       # Dev 1: AST Slicer & Agent State Machine
 │   ├── inference/          # Dev 2: Nebius Router & Tavily Threat Engine
-│   ├── sandbox/            # Dev 3: Docker Sandbox & Red/Blue Runner
+│   ├── sandbox/            # Dev 3: Isolated Docker execution and profiles
 │   ├── telemetry/          # Dev 4: Real-Time Telemetry HUD
 │   └── common/             # Shared types, configs, utilities
 ├── vulnerable_app/         # Curated demo repo with intentional flaws
@@ -70,7 +71,7 @@ vulnos-2.0/
 |-----|--------|---------------|
 | **Dev 1** | `src/orchestrator/` | AST Slicer, LangGraph state machine, event emitter |
 | **Dev 2** | `src/inference/` | Nebius Token Factory router, Tavily threat pipeline, prompt engineering |
-| **Dev 3** | `src/sandbox/` | Docker sandbox, Red/Blue verification protocol, PR generator |
+| **Dev 3** | `src/sandbox/` | Isolated profile execution and bounded process evidence |
 | **Dev 4** | `src/telemetry/` | Real-time HUD, demo repo, 3-min video |
 
 ## Quick Start

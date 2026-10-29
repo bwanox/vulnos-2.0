@@ -134,6 +134,39 @@ def test_docker_runner_rejects_workspace_outside_system_temp_directory() -> None
         )
 
 
+def test_docker_runner_uses_workspace_relative_working_directory(tmp_path: Path) -> None:
+    nested = tmp_path / "service"
+    nested.mkdir()
+    container = Mock()
+    container.wait.return_value = {"StatusCode": 0}
+    container.logs.side_effect = [iter([]), iter([])]
+    client = Mock()
+    client.containers.create.return_value = container
+
+    DockerRunner(client=client).run(
+        "trusted-runtime:local",
+        ["true"],
+        tmp_path,
+        working_directory="service",
+    )
+
+    assert client.containers.create.call_args.kwargs["working_dir"] == "/workspace/service"
+
+
+@pytest.mark.parametrize("working_directory", ["../outside", "/etc", r"..\\outside"])
+def test_docker_runner_rejects_unsafe_working_directory(
+    tmp_path: Path,
+    working_directory: str,
+) -> None:
+    with pytest.raises(ValueError, match="working_directory"):
+        DockerRunner(client=Mock()).run(
+            "trusted-runtime:local",
+            ["true"],
+            tmp_path,
+            working_directory=working_directory,
+        )
+
+
 @pytest.mark.parametrize(
     "command",
     [

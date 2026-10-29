@@ -6,7 +6,7 @@ import os
 import re
 import tempfile
 import time
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Protocol
 
 import docker
@@ -34,6 +34,7 @@ class DockerCommandRunner(Protocol):
         command: list[str],
         workspace: str | Path,
         timeout_seconds: int | None = None,
+        working_directory: str = ".",
     ) -> ContainerResult: ...
 
 
@@ -45,10 +46,18 @@ class SandboxInfrastructureError(RuntimeError):
         message: str,
         command: list[str] | None = None,
         duration_seconds: float = 0.0,
+        process_started: bool = False,
+        stdout: str = "",
+        stderr: str = "",
+        timed_out: bool = False,
     ) -> None:
         super().__init__(message)
         self.command = command or []
         self.duration_seconds = duration_seconds
+        self.process_started = process_started
+        self.stdout = stdout
+        self.stderr = stderr
+        self.timed_out = timed_out
 
 
 class DockerRunner:
@@ -78,6 +87,7 @@ class DockerRunner:
         command: list[str],
         workspace: str | Path,
         timeout_seconds: int | None = None,
+        working_directory: str = ".",
     ) -> ContainerResult:
         """Run argv directly (without a host or container shell) and remove its container."""
         if image not in self.config.approved_images:
@@ -120,6 +130,39 @@ class DockerRunner:
             ) from error
         if not relative_workspace.parts:
             raise ValueError("The system temporary directory cannot be mounted directly")
+        relative_working_directory = PurePosixPath(working_directory)
+        if (
+            not working_directory
+            or "\\" in working_directory
+            or relative_working_directory.is_absolute()
+            or any(part == ".." for part in relative_working_directory.parts)
+        ):
+            raise ValueError("working_directory must remain inside the sandbox workspace")
+        requested_directory = workspace_path
+        for part in relative_working_directory.parts:
+            if part == ".":
+                continue
+            requested_directory = requested_directory / part
+            if requested_directory.is_symlink():
+                raise ValueError("working_directory cannot contain symlink components")
+        working_directory_path = workspace_path.joinpath(*relative_working_directory.parts).resolve(
+            strict=True
+        )
+        try:
+            container_working_directory = working_directory_path.relative_to(
+                workspace_path
+            ).as_posix()
+        except ValueError as error:
+            raise ValueError(
+                "working_directory must remain inside the sandbox workspace"
+            ) from error
+        if not working_directory_path.is_dir():
+            raise ValueError(f"Working directory is not a directory: {working_directory}")
+        container_working_directory = (
+            _CONTAINER_WORKSPACE
+            if container_working_directory == "."
+            else f"{_CONTAINER_WORKSPACE}/{container_working_directory}"
+        )
 
         if self.config.timeout < 1:
             raise ValueError("Sandbox configured timeout must be at least one second")
@@ -144,13 +187,14 @@ class DockerRunner:
         exit_code: int | None = None
         stdout = ""
         stderr = ""
+        process_started = False
         try:
             client.images.get(image)
             container = client.containers.create(
                 image=image,
                 command=command,
                 detach=True,
-                working_dir=_CONTAINER_WORKSPACE,
+                working_dir=container_working_directory,
                 user=_non_root_user(),
                 network_mode="none",
                 mem_limit=memory_limit,
@@ -169,6 +213,7 @@ class DockerRunner:
                 },
             )
             container.start()
+            process_started = True
             try:
                 response = container.wait(timeout=timeout)
                 exit_code = int(response["StatusCode"])
@@ -186,6 +231,10 @@ class DockerRunner:
                 f"Docker command failed for image {image!r}: {error}",
                 command=command,
                 duration_seconds=time.monotonic() - started,
+                process_started=process_started,
+                stdout=stdout,
+                stderr=stderr,
+                timed_out=timed_out,
             )
         finally:
             if container is not None:
@@ -200,6 +249,10 @@ class DockerRunner:
                             f"Unable to remove sandbox container: {error}",
                             command=command,
                             duration_seconds=time.monotonic() - started,
+                            process_started=process_started,
+                            stdout=stdout,
+                            stderr=stderr,
+                            timed_out=timed_out,
                         )
 
         if operation_error is not None:

@@ -3,11 +3,45 @@
 from __future__ import annotations
 
 import uuid
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from src.common.models import ExploitTest, PatchDiff
+
+
+class SandboxExecutionRequest(BaseModel):
+    """Request one command selected from a trusted profile."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    target_id: str
+    profile_id: str
+    operation: Literal["build", "test"]
+    command_index: int = Field(default=0, ge=0)
+    working_directory: str = "."
+    timeout_seconds: int | None = Field(default=None, ge=1, le=600)
+
+    @field_validator("target_id", "profile_id")
+    @classmethod
+    def validate_registry_ids(cls, value: str) -> str:
+        if not value or value.strip() != value or any(char.isspace() for char in value):
+            raise ValueError("target_id and profile_id must be registry identifiers")
+        return value
+
+    @field_validator("working_directory")
+    @classmethod
+    def validate_working_directory(cls, value: str) -> str:
+        candidate = PurePosixPath(value)
+        if (
+            not value
+            or "\\" in value
+            or candidate.is_absolute()
+            or any(part == ".." for part in candidate.parts)
+        ):
+            raise ValueError("working_directory must remain inside the project workspace")
+        return value
 
 
 class ControlledVerificationRequest(BaseModel):
@@ -107,6 +141,27 @@ class ContainerResult(BaseModel):
     stderr: str = ""
     duration_seconds: float = 0.0
     timed_out: bool = False
+
+
+class SandboxExecutionResult(BaseModel):
+    """Execution evidence only; it does not interpret security outcomes."""
+
+    request_id: str
+    status: Literal["completed", "timed_out", "execution_error"]
+    target_id: str
+    profile_id: str
+    operation: Literal["build", "test"]
+    runtime_image: str | None = None
+    toolchain: str | None = None
+    command: list[str] = Field(default_factory=list)
+    process_started: bool = False
+    exit_code: int | None = None
+    stdout: str = ""
+    stderr: str = ""
+    duration_seconds: float = 0.0
+    timed_out: bool = False
+    setup_error: bool = False
+    reason: str = ""
 
 
 class WorkspacePair(BaseModel):
