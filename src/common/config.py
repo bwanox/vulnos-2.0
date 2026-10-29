@@ -33,6 +33,21 @@ class SandboxConfig:
     cpu_limit: int = 1
     timeout: int = 120
     network_mode: str = "none"
+    approved_images: list[str] = field(
+        default_factory=lambda: [
+            "trusted-runtime:local",
+            "python:3.11-slim",
+            "python:3.10",
+            "vulnos/python:3.12",
+            "vulnos/java:21",
+            "vulnos/node:22",
+            "vulnos/cpp:stable",
+            "vulnos/cpp:latest",
+            "vulnos/go:1.22",
+            "vulnos/rust:1.75",
+            "gcc:latest",
+        ]
+    )
 
 
 @dataclass
@@ -80,6 +95,19 @@ def load_config(env_file: str = ".env") -> VulnOSConfig:
             memory_limit=os.getenv("SANDBOX_MEMORY_LIMIT", "512m"),
             cpu_limit=int(os.getenv("SANDBOX_CPU_LIMIT", "1")),
             timeout=int(os.getenv("SANDBOX_TIMEOUT", "120")),
+            approved_images=[
+                "trusted-runtime:local",
+                "python:3.11-slim",
+                "python:3.10",
+                "vulnos/python:3.12",
+                "vulnos/java:21",
+                "vulnos/node:22",
+                "vulnos/cpp:stable",
+                "vulnos/cpp:latest",
+                "vulnos/go:1.22",
+                "vulnos/rust:1.75",
+                "gcc:latest",
+            ],
         ),
         telemetry=TelemetryConfig(
             port=int(os.getenv("TELEMETRY_PORT", "3000")),
