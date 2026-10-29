@@ -1,0 +1,3 @@
+flask==3.0.0
+some-vulnerable-pkg==1.2.3
+another-pkg>=2.0.0
