@@ -32,6 +32,7 @@ class CodeSlice(BaseModel):
     sink_type: str = ""  # e.g., "sql_query", "subprocess", "deserializer", "buffer_overflow"
     entry_point: str = ""  # e.g., API route or CLI input
     target_language: str = "python"  # python, c, cpp, go, rust, javascript, etc.
+    attack_vector: str = "code_logic"  # "code_logic", "rce_shell", "network_socket", "privesc_endpoint"
 
 
 class DependencyInfo(BaseModel):
@@ -71,6 +72,7 @@ class ExploitTest(BaseModel):
     exploit_description: str = ""
     target_language: str = "python"
     runner_command: str = "pytest"  # e.g., "pytest", "gcc -o exploit exploit.c && ./exploit", "go test", "cargo test"
+    attack_vector: str = "code_logic"
 
 
 class PatchDiff(BaseModel):

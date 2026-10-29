@@ -60,4 +60,5 @@ async def generate_exploit(
         exploit_description=parsed.exploit_description,
         target_language=assessment.slice.target_language,
         runner_command=parsed.runner_command or "pytest",
+        attack_vector=assessment.slice.attack_vector,
     )
